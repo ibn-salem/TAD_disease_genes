@@ -137,6 +137,8 @@ for (SIZE in SIZE_TH) {
   valueDF <- nGeneCounts %>% 
     filter(ClinicalSignificance == "Pathogenic")
   
+  write_tsv(valueDF, paste0(outPrefixSize, ".pathogenic_deletions_at_TADboundaries.tsv"))
+  
   #-------------------------------------------------------------------------------
   # percent of boundaries with pathogenic deletion
   #-------------------------------------------------------------------------------
@@ -159,6 +161,7 @@ for (SIZE in SIZE_TH) {
   
   countNG <- boundaryDF %>% 
     count(nG)
+  write_tsv(countNG, paste0(outPrefixSize, ".number_of_Bounaries_by_nG.tsv"))
   
   p <- ggplot(countNG, aes(x = nG , y = n)) + 
     geom_bar(stat = "identity") + 
