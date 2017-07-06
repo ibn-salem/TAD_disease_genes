@@ -82,96 +82,94 @@ clinvar <- clinvar_raw %>%
   filter(Assembly == "GRCh37") %>% 
   mutate(Size = Stop - Start + 1)
 
-sv <- clinvar %>% 
-  filter(Type %in% c("deletion")) %>% 
-  filter(ClinicalSignificance %in% c("Pathogenic", "Benign")) %>% 
-  mutate(svID = 1:n())
-
-svGR <- GRanges(
-  paste0("chr", sv$Chromosome),
-  IRanges(sv$Start, sv$Stop),
-  strand = "*",
-  select(sv, Type, ClinicalSignificance, Size, AllelID)
-)
-
+# sv <- clinvar %>% 
+#   filter(Type %in% c("deletion")) %>% 
+#   filter(ClinicalSignificance %in% c("Pathogenic", "Benign")) %>% 
+#   mutate(svID = 1:n()) 
 # 
-# sv_benign <- sv %>%
-#   filter(ClinicalSignificance == "Benign")
-# 
-# sv_pathogenic <- sv %>%
-#   filter(ClinicalSignificance == "Pathogenic")
-# 
-# benignGR <- GRanges(
-#   paste0("chr", sv_benign$Chromosome),
-#   IRanges(sv_benign$Start, sv_benign$Stop),
-#   strand = "*",
-#   select(sv_benign, Type, ClinicalSignificance, Size, AllelID)
-# )
-# 
-# pathogenicGR <- GRanges(
-#   paste0("chr", sv_pathogenic$Chromosome),
-#   IRanges(sv_pathogenic$Start, sv_pathogenic$Stop),
-#   strand = "*",
-#   select(sv_pathogenic, Type, ClinicalSignificance, Size, AllelID)
-# )
 
-#===============================================================================
-# SVs at boundaries
-#===============================================================================
+# iterate over size thresholods
+SIZE_TH = c(0, 5000, 10000, 10^5, 10^6, 10^7)
 
-boudnaryToSV <- as_tibble(as.data.frame(findOverlaps(boundaryGR, svGR))) %>% 
-  dplyr::rename(boundaryID = queryHits, svID = subjectHits)
-
-boundaryHits <- boundaryDF %>% 
-  left_join(boudnaryToSV, by = "boundaryID") %>% 
-  left_join(sv, by = "svID") 
-
-boundaryCounts <- boundaryHits %>% 
-  group_by(boundaryID, nG, ClinicalSignificance) %>%
-  summarize(n_hits = n())
+for (SIZE in SIZE_TH) {
   
-nGeneCounts <- boundaryCounts %>% 
-  group_by(nG, ClinicalSignificance) %>% 
-  summarize(n = n()) %>% 
-  mutate(
+  outPrefixSize <- paste0(outPrefix, ".", SIZE)  
+  
+  sv <- clinvar %>% 
+    filter(Type %in% c("deletion")) %>% 
+    filter(ClinicalSignificance %in% c("Pathogenic", "Benign")) %>% 
+    filter(Size >= SIZE) %>% 
+    mutate(svID = 1:n()) 
+
+  svGR <- GRanges(
+    paste0("chr", sv$Chromosome),
+    IRanges(sv$Start, sv$Stop),
+    strand = "*",
+    select(sv, Type, ClinicalSignificance, Size, AllelID, svID)
+  )
+  
+  
+  #===============================================================================
+  # SVs at boundaries
+  #===============================================================================
+  
+  boudnaryToSV <- as_tibble(as.data.frame(findOverlaps(boundaryGR, svGR))) %>% 
+    dplyr::rename(boundaryID = queryHits, svID = subjectHits)
+  
+  boundaryHits <- boundaryDF %>% 
+    left_join(boudnaryToSV, by = "boundaryID") %>% 
+    left_join(sv, by = "svID") 
+    
+  boundaryCounts <- boundaryHits %>% 
+    group_by(boundaryID, nG, ClinicalSignificance) %>%
+    summarize(n_hits = sum(!is.na(svID)))
+  
+  # print(boundaryCounts %>% ungroup() %>% count(n_hits))
+  
+  nGeneCounts <- boundaryCounts %>% 
+    group_by(nG, ClinicalSignificance) %>% 
+    summarize(n = n()) %>% 
+    mutate(
       N = sum(n),
       freq = n / N,
       percent = freq * 100)
-
-valueDF <- nGeneCounts %>% 
-  filter(ClinicalSignificance == "Pathogenic")
-
-#-------------------------------------------------------------------------------
-# percent of boundaries with pathogenic deletion
-#-------------------------------------------------------------------------------
-
-p <- ggplot(valueDF, 
-       aes(x = nG , y = percent)) + 
-  geom_bar(stat = "identity") + 
-  geom_text(aes(label = paste0(n, "/", N, " (",signif(percent, 3), "%)" )),
-            angle = 90, hjust = "left") +
-  ylim(0, 1.3 * max(valueDF$percent)) + 
-  theme_bw() + 
-  labs(y = "TAD boundaries with pathogenic deletion [%]",
-       x = "Number of genes in TAD")
-
-ggsave(p, file = paste0(outPrefix, ".pathogenic_deletions_at_TADboundaries.barplot.pdf"), w = 5, h = 5)
-
-#-------------------------------------------------------------------------------
-# Number of tad boundaries with n genes
-#-------------------------------------------------------------------------------
-
-countNG <- boundaryDF %>% 
-  count(nG)
-
-p <- ggplot(countNG, aes(x = nG , y = n)) + 
-  geom_bar(stat = "identity") + 
-  geom_text(aes(label = n), angle = 90, hjust = "left") +
-  theme_bw() + 
-  labs(y = "Boundaries",
-       x = "Number of genes in TAD")
-
-# ggsave(p, file = paste0(outPrefix, ".pathogenic_deletions_at_TADboundaries.barplot.pdf"), w = 6, h = 6)
+  
+  valueDF <- nGeneCounts %>% 
+    filter(ClinicalSignificance == "Pathogenic")
+  
+  #-------------------------------------------------------------------------------
+  # percent of boundaries with pathogenic deletion
+  #-------------------------------------------------------------------------------
+  
+  p <- ggplot(valueDF, 
+              aes(x = nG , y = percent)) + 
+    geom_bar(stat = "identity") + 
+    geom_text(aes(label = paste0(n, "/", N, " (",signif(percent, 3), "%)" )),
+              angle = 90, hjust = "left") +
+    ylim(0, 1.3 * max(valueDF$percent)) + 
+    theme_bw() + 
+    labs(y = "TAD boundaries with pathogenic deletion [%]",
+         x = "Number of genes in TAD")
+  
+  ggsave(p, file = paste0(outPrefixSize, ".pathogenic_deletions_at_TADboundaries.barplot.pdf"), w = 5, h = 5)
+  
+  #-------------------------------------------------------------------------------
+  # Number of tad boundaries with n genes
+  #-------------------------------------------------------------------------------
+  
+  countNG <- boundaryDF %>% 
+    count(nG)
+  
+  p <- ggplot(countNG, aes(x = nG , y = n)) + 
+    geom_bar(stat = "identity") + 
+    geom_text(aes(label = n), angle = 90, hjust = "left") +
+    theme_bw() + 
+    labs(y = "Boundaries",
+         x = "Number of genes in TAD")
+  
+  ggsave(p, file = paste0(outPrefixSize, ".number_of_Bounaries_by_nG.barplot.pdf"), w = 6, h = 6)
+  
+}
 
 #===============================================================================
 # Analyse ClinVar
